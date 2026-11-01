@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, Check, FileImage, Keyboard, Loader2, Mic, RotateCcw, Square, Upload } from "lucide-react";
 import { LANGS, QUESTIONS, UI } from "@/lib/i18n";
 import { blobToWav16k } from "@/lib/wav";
+import { downscaleImage } from "@/lib/image";
 import type { Answer, Lang, Session } from "@/lib/types";
 
 const MAX_SEC = 25;
@@ -307,9 +308,16 @@ function DocumentStep({ session, onSaved, onFinish }: { session: Session; onSave
   async function upload(f: File) {
     setBusy(true);
     setError(null);
+    let photo: Blob;
+    try {
+      photo = await downscaleImage(f);
+    } catch {
+      setBusy(false);
+      return setError("Could not read this image. Please take the photo again as JPG or PNG.");
+    }
     const fd = new FormData();
     fd.append("sessionId", session.id);
-    fd.append("file", f);
+    fd.append("file", photo, "prescription.jpg");
     const r = await fetch("/api/document", { method: "POST", body: fd });
     const j = await r.json();
     setBusy(false);

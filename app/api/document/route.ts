@@ -10,7 +10,7 @@ async function handlePOST(req: Request) {
   const file = form?.get("file");
   if (!(file instanceof File)) return NextResponse.json({ error: "No file" }, { status: 400 });
   if (!(await getSession(sessionId))) return NextResponse.json({ error: "Session not found" }, { status: 404 });
-  if (file.size > MAX) return NextResponse.json({ error: "File too large (max 4 MB)" }, { status: 413 });
+  if (file.size > MAX) return NextResponse.json({ error: "This photo is too large (over 4 MB). Please take it again a little further away." }, { status: 413 });
   const buf = Buffer.from(await file.arrayBuffer());
   // Check magic bytes, not just the declared type.
   const ext = buf[0] === 0xff && buf[1] === 0xd8 ? "jpg" : buf.toString("hex", 0, 4) === "89504e47" ? "png" : null;
