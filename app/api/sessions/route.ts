@@ -1,14 +1,15 @@
+import { route } from "@/lib/route";
 import { NextResponse } from "next/server";
 import { createSession, listSessions, newId } from "@/lib/store";
 import { LANGS } from "@/lib/i18n";
 import type { Lang, Session } from "@/lib/types";
 
-export async function GET() {
+async function handleGET() {
   const all = await listSessions();
   return NextResponse.json(all.sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
 }
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   const b = await req.json().catch(() => ({}));
   const token = String(b.token ?? "").trim();
   const age = b.age === "" || b.age == null ? null : Number(b.age);
@@ -35,3 +36,6 @@ export async function POST(req: Request) {
   await createSession(s);
   return NextResponse.json(s);
 }
+
+export const GET = route("sessions GET", handleGET);
+export const POST = route("sessions POST", handlePOST);

@@ -54,7 +54,11 @@ export default function Home() {
         </button>
         {error && <p className="mt-2 text-red-600 text-sm">{error}</p>}
 
-        <p className="mt-12 text-xs text-slate-400">
+        <form action="/api/logout" method="post" className="mt-8">
+          <button className="text-sm text-slate-400 hover:text-slate-600 underline">Log out</button>
+        </form>
+
+        <p className="mt-6 text-xs text-slate-400">
           Hackathon prototype. Not a medical device. AI never diagnoses or prescribes — the doctor reviews and signs off. Use synthetic data only.
         </p>
       </div>

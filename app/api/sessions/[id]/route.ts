@@ -1,15 +1,16 @@
+import { route } from "@/lib/route";
 import { NextResponse } from "next/server";
 import { deleteSession, getSession, updateSession } from "@/lib/store";
 import type { FactStatus, PromptStatus } from "@/lib/types";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_: Request, { params }: Ctx) {
+async function handleGET(_: Request, { params }: Ctx) {
   const s = await getSession((await params).id);
   return s ? NextResponse.json(s) : NextResponse.json({ error: "Not found" }, { status: 404 });
 }
 
-export async function DELETE(_: Request, { params }: Ctx) {
+async function handleDELETE(_: Request, { params }: Ctx) {
   const ok = await deleteSession((await params).id);
   return ok ? NextResponse.json({ ok: true }) : NextResponse.json({ error: "Not found" }, { status: 404 });
 }
@@ -18,7 +19,7 @@ const FACT_STATUSES: FactStatus[] = ["pending", "confirmed", "edited", "rejected
 const PROMPT_STATUSES: PromptStatus[] = ["pending", "asked", "dismissed"];
 
 /** Doctor review actions: fact status/edit, prompt status, sign-off. */
-export async function PATCH(req: Request, { params }: Ctx) {
+async function handlePATCH(req: Request, { params }: Ctx) {
   const id = (await params).id;
   const b = await req.json().catch(() => ({}));
   let error: string | null = null;
@@ -52,3 +53,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   if (error) return NextResponse.json({ error }, { status: 400 });
   return NextResponse.json(s);
 }
+
+export const GET = route("sessions/[id] GET", handleGET);
+export const DELETE = route("sessions/[id] DELETE", handleDELETE);
+export const PATCH = route("sessions/[id] PATCH", handlePATCH);

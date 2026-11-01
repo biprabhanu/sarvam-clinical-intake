@@ -1,3 +1,4 @@
+import { route } from "@/lib/route";
 import { NextResponse } from "next/server";
 import { getSession, saveFile, updateSession } from "@/lib/store";
 import { SarvamError, transcribe, translateToEnglish } from "@/lib/sarvam";
@@ -7,7 +8,7 @@ import type { Answer, Segment } from "@/lib/types";
 const MAX_BYTES = 2 * 1024 * 1024; // 25 s of 16 kHz mono 16-bit WAV ≈ 0.8 MB
 const MAX_SECONDS = 26;
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   const form = await req.formData().catch(() => null);
   if (!form) return NextResponse.json({ error: "Expected multipart form data" }, { status: 400 });
   const sessionId = String(form.get("sessionId") ?? "");
@@ -74,3 +75,5 @@ export async function POST(req: Request) {
   });
   return NextResponse.json({ answer, session: updated });
 }
+
+export const POST = route("answer POST", handlePOST);

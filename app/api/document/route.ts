@@ -1,9 +1,10 @@
+import { route } from "@/lib/route";
 import { NextResponse } from "next/server";
 import { getSession, newId, saveFile, updateSession } from "@/lib/store";
 
 const MAX = 4 * 1024 * 1024; // Vercel request bodies are capped at 4.5 MB
 
-export async function POST(req: Request) {
+async function handlePOST(req: Request) {
   const form = await req.formData().catch(() => null);
   const sessionId = String(form?.get("sessionId") ?? "");
   const file = form?.get("file");
@@ -20,3 +21,5 @@ export async function POST(req: Request) {
   });
   return NextResponse.json(s);
 }
+
+export const POST = route("document POST", handlePOST);

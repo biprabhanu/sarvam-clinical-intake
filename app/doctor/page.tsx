@@ -90,7 +90,10 @@ export default function DoctorPage() {
       <aside className="lg:w-72 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 flex flex-col">
         <div className="px-5 py-4 border-b border-slate-100">
           <Link href="/" className="font-semibold text-brand text-lg">Listen, Understand</Link>
-          <p className="text-sm text-slate-500">OPD waiting list</p>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-slate-500">OPD waiting list</p>
+            <form action="/api/logout" method="post"><button className="text-xs text-slate-400 hover:text-slate-600 underline">Log out</button></form>
+          </div>
         </div>
         <ul className="flex lg:flex-col overflow-x-auto lg:overflow-y-auto p-2 gap-1">
           {sessions.length === 0 && <li className="p-4 text-slate-400 text-sm">No patients yet.</li>}

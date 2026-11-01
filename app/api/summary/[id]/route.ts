@@ -1,3 +1,4 @@
+import { route } from "@/lib/route";
 import { NextResponse } from "next/server";
 import { getSession, updateSession } from "@/lib/store";
 import { chat, SarvamError } from "@/lib/sarvam";
@@ -6,7 +7,7 @@ import type { Summary } from "@/lib/types";
 
 export const maxDuration = 300;
 
-export async function POST(_: Request, { params }: { params: Promise<{ id: string }> }) {
+async function handlePOST(_: Request, { params }: { params: Promise<{ id: string }> }) {
   const id = (await params).id;
   const s = await getSession(id);
   if (!s) return NextResponse.json({ error: "Session not found" }, { status: 404 });
@@ -41,3 +42,5 @@ export async function POST(_: Request, { params }: { params: Promise<{ id: strin
   if (!summary) return NextResponse.json({ error: updated?.summaryError }, { status: 502 });
   return NextResponse.json(updated);
 }
+
+export const POST = route("summary/[id] POST", handlePOST);

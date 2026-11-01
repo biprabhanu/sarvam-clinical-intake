@@ -1,3 +1,4 @@
+import { route } from "@/lib/route";
 import { NextResponse } from "next/server";
 import { createSession, newId, saveFile } from "@/lib/store";
 import { tts } from "@/lib/sarvam";
@@ -7,7 +8,7 @@ import type { Answer, Session } from "@/lib/types";
 
 export const maxDuration = 120;
 
-export async function POST() {
+async function handlePOST() {
   const now = new Date().toISOString();
   let audioError: string | null = null;
   const answers: Answer[] = [];
@@ -69,3 +70,5 @@ export async function POST() {
   await createSession(s);
   return NextResponse.json({ id: s.id, audioError });
 }
+
+export const POST = route("demo/seed POST", handlePOST);
