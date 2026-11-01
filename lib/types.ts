@@ -29,7 +29,8 @@ export interface Fact {
   category: FactCategory;
   englishText: string;
   originalText: string;
-  originalTextVerbatim: boolean; // true if model's phrase was found in the source segment(s)
+  needsVerification: boolean; // e.g. the model's quote was not found in the cited source
+  verificationReason: string | null;
   sourceSegmentIds: string[];
   status: FactStatus;
   editedText: string | null;

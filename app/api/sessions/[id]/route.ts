@@ -43,6 +43,8 @@ async function handlePATCH(req: Request, { params }: Ctx) {
     } else if (b.action === "signoff") {
       const doctorId = String(b.doctorId ?? "").trim();
       if (!doctorId) { error = "Doctor ID is required"; return; }
+      const unverified = s.summary.facts.filter((f) => f.needsVerification && f.status === "pending").length;
+      if (unverified) { error = `${unverified} fact(s) need verification (quote not found in source) — confirm, edit or reject them before sign-off`; return; }
       const pending = s.summary.facts.filter((f) => f.status === "pending").length;
       if (pending) { error = `${pending} fact(s) still pending review — confirm, edit or reject each before sign-off`; return; }
       s.signoff = { doctorId, at: new Date().toISOString() };

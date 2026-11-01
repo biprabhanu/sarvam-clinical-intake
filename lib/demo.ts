@@ -10,7 +10,7 @@ export const DEMO_ANSWERS: { segments: string[]; english: string }[] = [
 ];
 
 const fact = (id: string, category: Fact["category"], englishText: string, originalText: string, ids: string[]): Fact => ({
-  id, category, englishText, originalText, originalTextVerbatim: true, sourceSegmentIds: ids, status: "pending", editedText: null,
+  id, category, englishText, originalText, needsVerification: false, verificationReason: null, sourceSegmentIds: ids, status: "pending", editedText: null,
 });
 
 export const DEMO_FACTS: Fact[] = [

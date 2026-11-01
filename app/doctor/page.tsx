@@ -373,7 +373,8 @@ function FactCard({ f, segIndex, player, locked, busy, onPatch }: {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(f.editedText ?? f.englishText);
   const tone =
-    f.status === "rejected" ? "border-slate-200 bg-slate-50 opacity-60"
+    f.needsVerification && f.status === "pending" ? "border-amber-400 bg-amber-50/40"
+      : f.status === "rejected" ? "border-slate-200 bg-slate-50 opacity-60"
       : f.status === "confirmed" || f.status === "edited" ? "border-emerald-300 bg-white"
         : "border-amber-300 bg-white";
   const bar = f.status === "rejected" ? "bg-slate-300" : f.status === "pending" ? "bg-amber-400" : "bg-emerald-500";
@@ -399,10 +400,13 @@ function FactCard({ f, segIndex, player, locked, busy, onPatch }: {
           ) : (
             <p className={`text-lg font-medium ${f.status === "rejected" ? "line-through" : ""}`}>{f.englishText}</p>
           )}
-          <p className="text-slate-500 mt-1">
-            {f.originalText}
-            {!f.originalTextVerbatim && <span className="ml-2 text-xs text-amber-700">(full source segment shown)</span>}
-          </p>
+          {f.originalText && <p className="text-slate-500 mt-1">{f.originalText}</p>}
+          {f.needsVerification && (
+            <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-sm">
+              <p className="font-medium text-amber-800 flex items-center gap-1"><AlertTriangle className="w-4 h-4" /> Needs verification — {f.verificationReason}</p>
+              <p className="text-slate-700 mt-1"><span className="text-slate-500">Source actually says:</span> {f.sourceSegmentIds.map((id) => segIndex.get(id)?.seg.text).filter(Boolean).join(" ")}</p>
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             {f.sourceSegmentIds.map((id) => <SourceRef key={id} id={id} segIndex={segIndex} player={player} />)}
           </div>

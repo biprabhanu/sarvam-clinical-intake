@@ -66,14 +66,16 @@ export function validateSummary(raw: unknown, s: Session, model: string): Summar
     const sourceText = ids.map((i) => segText.get(i)!).join(" ");
     const claimed = str(f?.originalText);
     const verbatim = !!claimed && norm(sourceText).includes(norm(claimed));
+    // Keep the model's quote as-is but flag it, so a model-invented fact never looks verified.
+    const verificationReason = !claimed ? "No original-language quote given" : verbatim ? null : "Quote not found in source";
     const cat = str(f?.category).toLowerCase() as FactCategory;
     facts.push({
       id,
       category: CATEGORIES.includes(cat) ? cat : "other",
       englishText,
-      // If the model's quote isn't actually in the source, show the real source text instead.
-      originalText: verbatim ? claimed : sourceText,
-      originalTextVerbatim: verbatim,
+      originalText: claimed,
+      needsVerification: verificationReason !== null,
+      verificationReason,
       sourceSegmentIds: ids,
       status: "pending",
       editedText: null,
