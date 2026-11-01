@@ -324,7 +324,7 @@ function DocumentStep({ session, onSaved, onFinish }: { session: Session; onSave
       <label className="flex flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 py-10 cursor-pointer hover:bg-slate-50">
         {busy ? <Loader2 className="w-8 h-8 animate-spin text-brand" /> : <Upload className="w-8 h-8 text-brand" />}
         <span className="text-lg">Take photo / choose image</span>
-        <span className="text-sm text-slate-400">JPG or PNG, up to 8 MB</span>
+        <span className="text-sm text-slate-400">JPG or PNG, up to 4 MB</span>
         <input type="file" accept="image/jpeg,image/png" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
       </label>
       {session.documents.length > 0 && <p className="text-emerald-700 flex items-center gap-2"><Check className="w-5 h-5" /> {session.documents.length} image(s) uploaded</p>}

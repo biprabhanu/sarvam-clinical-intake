@@ -23,6 +23,7 @@ export async function PATCH(req: Request, { params }: Ctx) {
   const b = await req.json().catch(() => ({}));
   let error: string | null = null;
   const s = await updateSession(id, (s) => {
+    error = null; // fn may re-run on a concurrent-write retry
     if (s.signoff) { error = "Summary is already signed off and locked"; return; }
     if (!s.summary) { error = "No summary to review"; return; }
     if (b.action === "fact") {
