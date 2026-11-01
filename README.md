@@ -1,12 +1,23 @@
 # Listen, Understand — multilingual OPD intake (hackathon prototype)
-Patients answer 5 questions by voice in Odia / Hindi / Marathi; doctors get an evidence-linked English summary (every fact has a ▶ to its source audio) plus AI prompts for verification only, then confirm / edit / reject and sign off.
+Patients answer 5 questions by voice in Odia / Hindi / Marathi. Doctors get an evidence-linked English summary where every fact has a ▶ to its source audio, plus AI prompts for verification only. The doctor confirms, edits or rejects each fact, then signs off. Live: https://sarvam-clinical-intake.vercel.app (team passcode required).
 
-**Run:** `cp .env.example .env.local`, add `SARVAM_API_KEY`, then `npm install && npm run dev` → http://localhost:3000. Use **Load demo session** for an offline-safe walkthrough (token 17, Odia farmer).
+**Run locally:** `cp .env.example .env.local`, set `SARVAM_API_KEY`, then `npm install && npm run dev` → http://localhost:3000. Without `APP_PASSCODE` the local app is open; data goes to `data/` on disk. **Tests:** `npm test` (Vitest, no network).
 
-**Sarvam APIs:** Saaras v4 speech-to-text (with phrase timestamps), sarvam-translate:v1 (English gloss of transcripts), Sarvam-105B chat for the structured summary, Bulbul v3 TTS (demo audio only). Keys stay server-side in `lib/sarvam.ts`.
+**Deploy (Vercel):** connect a *private* Blob store (adds `BLOB_READ_WRITE_TOKEN`), then set `SARVAM_API_KEY`, `APP_PASSCODE` and `SESSION_SECRET` (32+ random chars). Production refuses to run without a passcode and never falls back to local disk.
 
-**Evidence guarantee (`lib/summary.ts`):** facts citing unknown segment IDs are dropped, prompts citing dropped facts are dropped, red flags must cite a real segment, quotes not found verbatim are replaced by the real segment text, and timestamps always come from stored Saaras data, never from the model.
+**Sarvam APIs:** Saaras v4 speech-to-text with phrase timestamps; sarvam-translate:v1 for English glosses; `sarvam-105b-conversations` for the structured summary (`sarvam-105b` used up its token budget on reasoning in testing; override with `SARVAM_LLM_MODEL`); Bulbul v3 for demo audio. Keys stay server-side.
 
-**Data:** `data/sessions.json` plus `data/files/` (audio and images, outside `public/`, served via `/api/files`). The doctor's 🗑 button deletes a session and its files.
+**Evidence guarantee (`lib/summary.ts`):**
+- Facts citing unknown segments are dropped, and so are prompts citing dropped facts.
+- Quotes not found in the source are flagged "needs verification" and block sign-off until reviewed.
+- Denials and family history get their own categories.
+- Timestamps always come from Saaras, never from the model.
 
-**Notes / limits:** The LLM defaults to `sarvam-105b-conversations`, because `sarvam-105b` spent its whole token budget on reasoning in testing. Override with `SARVAM_LLM_MODEL`. Prescription photos are stored and shown but not OCR'd. Red flags rely on the LLM and are only checked after the interview ends. There are no auth, tests or retention policy. Not a medical device; use synthetic data only.
+**Storage (`lib/store.ts`):** one private blob per session, updated with ETag `ifMatch` and retries (409 after 5 conflicts). Files are served only through authenticated `/api/files`. Deleting a session removes its files.
+
+**Limits:**
+- One shared passcode for everyone; no per-user accounts or audit log.
+- Prescription photos are stored and shown but not OCR'd.
+- Red flags rely on the LLM after the interview.
+- No retention policy.
+- Not a medical device, not clinically validated, not DPDP-compliant. Use synthetic data only.
