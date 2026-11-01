@@ -1,6 +1,6 @@
 export type Lang = "od-IN" | "hi-IN" | "mr-IN";
 export type SessionStatus = "in_progress" | "generating" | "ready" | "signed_off";
-export type FactCategory = "symptom" | "duration" | "medicine" | "history" | "allergy" | "other";
+export type FactCategory = "symptom" | "duration" | "medicine" | "history" | "allergy" | "negative" | "family_history" | "other";
 export type FactStatus = "pending" | "confirmed" | "edited" | "rejected";
 export type PromptStatus = "pending" | "asked" | "dismissed";
 

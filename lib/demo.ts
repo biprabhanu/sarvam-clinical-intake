@@ -22,7 +22,7 @@ export const DEMO_FACTS: Fact[] = [
   fact("f6", "medicine", "Paracetamol from village shop, twice a day — strength not stated", "ଗାଁ ଦୋକାନରୁ ପାରାସିଟାମଲ ଆଣି ଖାଇଛି। ଦିନକୁ ଦୁଇଥର ଖାଉଛି।", ["a4_s1", "a4_s2"]),
   fact("f7", "history", "Has diabetes (\"sugar\")", "ମୋର ସୁଗାର ଅଛି।", ["a5_s1"]),
   fact("f8", "medicine", "Takes Metformin daily — dose not stated", "ମେଟଫର୍ମିନ ଔଷଧ ରୋଜ ଖାଏ।", ["a5_s2"]),
-  fact("f9", "allergy", "No known allergies", "କୌଣସି ଆଲର୍ଜି ନାହିଁ।", ["a5_s3"]),
+  fact("f9", "negative", "No known allergies", "କୌଣସି ଆଲର୍ଜି ନାହିଁ।", ["a5_s3"]),
 ];
 
 export const DEMO_PROMPTS: DoctorPrompt[] = [

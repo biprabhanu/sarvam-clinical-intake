@@ -12,6 +12,16 @@ import { apiFetch } from "@/lib/api-client";
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const STATUS_LABEL = { in_progress: "In progress", generating: "Generating summary", ready: "Ready for review", signed_off: "Signed off" } as const;
 const STUCK_AFTER_MS = 3 * 60 * 1000;
+const CATEGORY_STYLE: Record<string, { label: string; cls: string }> = {
+  symptom: { label: "Symptom", cls: "bg-slate-100 text-slate-600" },
+  duration: { label: "Duration", cls: "bg-slate-100 text-slate-600" },
+  medicine: { label: "Medicine", cls: "bg-sky-50 text-sky-700" },
+  history: { label: "History", cls: "bg-slate-100 text-slate-600" },
+  allergy: { label: "Allergy", cls: "bg-orange-50 text-orange-700" },
+  negative: { label: "Denied by patient", cls: "bg-slate-200 text-slate-700" },
+  family_history: { label: "Family history — not the patient", cls: "bg-violet-50 text-violet-700" },
+  other: { label: "Other", cls: "bg-slate-100 text-slate-600" },
+};
 const missingAnswers = (s: Session) => QUESTIONS.map((_, i) => i + 1).filter((n) => !s.answers.some((a) => a.index === n));
 
 /* ---------- evidence player: one shared <audio>, blob URLs so seeking always works ---------- */
@@ -386,7 +396,7 @@ function FactCard({ f, segIndex, player, locked, busy, onPatch }: {
       <div className="flex items-start gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs uppercase tracking-wide font-semibold text-slate-500 bg-slate-100 rounded px-1.5 py-0.5">{f.category}</span>
+            <span className={`text-xs uppercase tracking-wide font-semibold rounded px-1.5 py-0.5 ${(CATEGORY_STYLE[f.category] ?? CATEGORY_STYLE.other).cls}`}>{(CATEGORY_STYLE[f.category] ?? CATEGORY_STYLE.other).label}</span>
             <span className="text-xs text-slate-400">{f.status}</span>
           </div>
           {editing ? (
