@@ -116,10 +116,25 @@ const realBlobClient: BlobClient = {
   put: vercelBlob.put,
   list: vercelBlob.list,
   del: vercelBlob.del,
-  isPreconditionFailed: (e) => e instanceof vercelBlob.BlobPreconditionFailedError,
+  isPreconditionFailed: isBlobWriteConflict,
 };
 
+/**
+ * Both mean "someone else wrote this blob concurrently — re-read and retry":
+ * - BlobPreconditionFailedError: our ifMatch ETag is stale.
+ * - BlobError "conditional request cannot succeed due to a conflicting operation": two conditional
+ *   writes hit the same blob at the same instant (seen live with parallel answers).
+ */
+export function isBlobWriteConflict(e: unknown): boolean {
+  if (e instanceof vercelBlob.BlobPreconditionFailedError) return true;
+  return e instanceof vercelBlob.BlobError && /conflicting operation/i.test(e.message);
+}
+
 export const MAX_UPDATE_ATTEMPTS = 5;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+let retryDelayMs = (attempt: number) => Math.round(Math.random() * 150 * attempt);
+/** Test hook: disable backoff delays. */
+export const setRetryDelayForTests = (fn: (attempt: number) => number) => { retryDelayMs = fn; };
 
 export function createBlobBackend(client: BlobClient = realBlobClient): Backend {
   const key = (id: string) => `sessions/${id}.json`;
@@ -168,7 +183,8 @@ export function createBlobBackend(client: BlobClient = realBlobClient): Backend 
           return cur.s;
         } catch (e) {
           if (!client.isPreconditionFailed(e)) throw e;
-          console.warn(`[store] ETag conflict on session ${id} (attempt ${attempt}/${MAX_UPDATE_ATTEMPTS}), sent ${cur.etag}`);
+          console.warn(`[store] write conflict on session ${id} (attempt ${attempt}/${MAX_UPDATE_ATTEMPTS})`);
+          if (attempt < MAX_UPDATE_ATTEMPTS) await sleep(retryDelayMs(attempt)); // jitter so racing writers spread out
         }
       }
       throw new ConflictError();

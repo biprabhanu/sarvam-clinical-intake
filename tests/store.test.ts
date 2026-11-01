@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConflictError, createBlobBackend, MAX_UPDATE_ATTEMPTS, type BlobClient } from "@/lib/store";
+import { BlobError, BlobPreconditionFailedError } from "@vercel/blob";
+import { ConflictError, createBlobBackend, isBlobWriteConflict, MAX_UPDATE_ATTEMPTS, setRetryDelayForTests, type BlobClient } from "@/lib/store";
+
+setRetryDelayForTests(() => 0);
 import { route } from "@/lib/route";
 import type { Session } from "@/lib/types";
 
@@ -77,6 +80,13 @@ describe("blob store", () => {
     const res = await route("test", async () => { await b2.updateSession("0123456789abcdef", () => undefined); return new Response("ok"); })(new Request("http://x"), {});
     expect(res.status).toBe(409);
     expect((await res.json()).error).toMatch(/try again/);
+  });
+
+  it("treats both Blob conflict errors as retryable, and nothing else", () => {
+    expect(isBlobWriteConflict(new BlobPreconditionFailedError())).toBe(true);
+    expect(isBlobWriteConflict(new BlobError("The conditional request cannot succeed due to a conflicting operation against this resource."))).toBe(true);
+    expect(isBlobWriteConflict(new BlobError("Bad request"))).toBe(false);
+    expect(isBlobWriteConflict(new Error("conflicting operation"))).toBe(false);
   });
 
   it("deletes the session JSON and all its files", async () => {
