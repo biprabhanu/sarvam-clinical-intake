@@ -1,24 +1,30 @@
-import "server-only";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { del, get, list, put } from "@vercel/blob";
+import * as vercelBlob from "@vercel/blob";
 import type { Session } from "./types";
 
 /**
  * Storage for sessions (JSON) and files (audio / images).
- * - Local dev: data/sessions.json + data/files/ (outside public/).
- * - On Vercel: a PRIVATE Vercel Blob store (sessions/<id>.json, files/<name>), because the
- *   serverless filesystem is read-only and not shared between instances. Files are only ever
- *   served through /api/files, never by a public URL.
+ * - With a Blob store configured (BLOB_READ_WRITE_TOKEN): a PRIVATE Vercel Blob store —
+ *   sessions/<id>.json and files/<name>. Files are only served through /api/files.
+ * - Local dev without a token: data/sessions.json + data/files/ (outside public/).
+ * - On Vercel without a Blob store: every call fails loudly (never falls back to the disk).
  */
-const USE_BLOB = !!process.env.VERCEL || process.env.STORAGE === "blob";
 
 export const newId = () => crypto.randomBytes(8).toString("hex");
-const SAFE_NAME = /^[a-zA-Z0-9_-]+\.(wav|jpg|jpeg|png)$/;
+export const SAFE_NAME = /^[a-zA-Z0-9_-]+\.(wav|jpg|jpeg|png)$/;
 const CONTENT_TYPES: Record<string, string> = { wav: "audio/wav", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png" };
 
-interface Backend {
+/** Thrown when a session keeps changing underneath us; routes map it to HTTP 409. */
+export class ConflictError extends Error {
+  status = 409;
+  constructor() {
+    super("This session was changed by someone else at the same moment — please try again.");
+  }
+}
+
+export interface Backend {
   listSessions(): Promise<Session[]>;
   getSession(id: string): Promise<Session | null>;
   createSession(s: Session): Promise<Session>;
@@ -31,11 +37,11 @@ interface Backend {
 const sessionFiles = (s: Session) =>
   [...s.answers.map((a) => a.audioFile), ...s.documents.map((d) => d.file)].filter((f): f is string => !!f);
 
-/* ------------------------------ local filesystem ------------------------------ */
-function localBackend(): Backend {
-  const DATA_DIR = path.join(process.cwd(), "data");
-  const FILES_DIR = path.join(DATA_DIR, "files");
-  const SESSIONS_FILE = path.join(DATA_DIR, "sessions.json");
+/* ------------------------------ local filesystem (dev only) ------------------------------ */
+export function createLocalBackend(root = path.join(process.cwd(), "data")): Backend {
+  const FILES_DIR = path.join(root, "files");
+  const SESSIONS_FILE = path.join(root, "sessions.json");
+  // Single-process dev server, so an in-process queue is enough here.
   let queue: Promise<unknown> = Promise.resolve();
   const locked = <T>(fn: () => Promise<T>): Promise<T> => {
     const run = queue.then(fn, fn);
@@ -51,7 +57,7 @@ function localBackend(): Backend {
     }
   };
   const writeAll = async (sessions: Session[]) => {
-    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.mkdir(root, { recursive: true });
     const tmp = SESSIONS_FILE + ".tmp";
     await fs.writeFile(tmp, JSON.stringify(sessions, null, 2));
     await fs.rename(tmp, SESSIONS_FILE);
@@ -96,21 +102,41 @@ function localBackend(): Backend {
 }
 
 /* ------------------------------ private Vercel Blob ------------------------------ */
-function blobBackend(): Backend {
+/** The subset of @vercel/blob we use — injectable so tests can mock it. */
+export interface BlobClient {
+  get: typeof vercelBlob.get;
+  put: typeof vercelBlob.put;
+  list: typeof vercelBlob.list;
+  del: typeof vercelBlob.del;
+  isPreconditionFailed: (e: unknown) => boolean;
+}
+
+const realBlobClient: BlobClient = {
+  get: vercelBlob.get,
+  put: vercelBlob.put,
+  list: vercelBlob.list,
+  del: vercelBlob.del,
+  isPreconditionFailed: (e) => e instanceof vercelBlob.BlobPreconditionFailedError,
+};
+
+export const MAX_UPDATE_ATTEMPTS = 5;
+
+export function createBlobBackend(client: BlobClient = realBlobClient): Backend {
   const key = (id: string) => `sessions/${id}.json`;
   const safeId = (id: string) => /^[a-f0-9]{16}$/.test(id);
+  const normEtag = (e: string) => e.replace(/^W\//, ""); // weak → strong form
 
-  async function readJson(pathname: string): Promise<{ s: Session } | null> {
-    const r = await get(pathname, { access: "private", useCache: false }); // always read the latest version
+  async function readJson(pathname: string): Promise<{ s: Session; etag: string } | null> {
+    const r = await client.get(pathname, { access: "private", useCache: false }); // always the latest version
     if (!r || r.statusCode !== 200) return null;
-    return { s: JSON.parse(await new Response(r.stream).text()) as Session };
+    return { s: JSON.parse(await new Response(r.stream).text()) as Session, etag: normEtag(r.blob.etag) };
   }
-  const writeJson = (s: Session, overwrite = false) =>
-    put(key(s.id), JSON.stringify(s), {
+  const putJson = (s: Session, opts: { ifMatch?: string; allowOverwrite: boolean }) =>
+    client.put(key(s.id), JSON.stringify(s), {
       access: "private",
       contentType: "application/json",
       addRandomSuffix: false,
-      allowOverwrite: overwrite,
+      ...opts,
     });
 
   return {
@@ -118,7 +144,7 @@ function blobBackend(): Backend {
       const out: Session[] = [];
       let cursor: string | undefined;
       do {
-        const page = await list({ prefix: "sessions/", cursor });
+        const page = await client.list({ prefix: "sessions/", cursor });
         const got = await Promise.all(page.blobs.map((b) => readJson(b.pathname).catch(() => null)));
         got.forEach((g) => g && out.push(g.s));
         cursor = page.hasMore ? page.cursor : undefined;
@@ -126,45 +152,72 @@ function blobBackend(): Backend {
       return out;
     },
     getSession: async (id) => (safeId(id) ? (await readJson(key(id)))?.s ?? null : null),
-    createSession: async (s) => { await writeJson(s); return s; },
-    // Last-writer-wins. Writes to one session are sequential in practice (one patient, one doctor).
-    // TODO: optimistic locking via ifMatch — ETag preconditions failed on every write in testing.
+    createSession: async (s) => {
+      await putJson(s, { allowOverwrite: false });
+      return s;
+    },
+    // Optimistic concurrency across instances: write only if the ETag is unchanged since our read.
     updateSession: async (id, fn) => {
       if (!safeId(id)) return null;
-      const cur = await readJson(key(id));
-      if (!cur) return null;
-      fn(cur.s);
-      await writeJson(cur.s, true);
-      return cur.s;
+      for (let attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS; attempt++) {
+        const cur = await readJson(key(id));
+        if (!cur) return null;
+        fn(cur.s);
+        try {
+          await putJson(cur.s, { ifMatch: cur.etag, allowOverwrite: true });
+          return cur.s;
+        } catch (e) {
+          if (!client.isPreconditionFailed(e)) throw e;
+          console.warn(`[store] ETag conflict on session ${id} (attempt ${attempt}/${MAX_UPDATE_ATTEMPTS}), sent ${cur.etag}`);
+        }
+      }
+      throw new ConflictError();
     },
     deleteSession: async (id) => {
       if (!safeId(id)) return false;
       const cur = await readJson(key(id));
       if (!cur) return false;
-      await del([...sessionFiles(cur.s).map((f) => `files/${f}`), key(id)]);
+      await client.del([...sessionFiles(cur.s).map((f) => `files/${f}`), key(id)]);
       return true;
     },
     saveFile: async (ext, data) => {
       const name = `${newId()}.${ext}`;
-      await put(`files/${name}`, data, { access: "private", contentType: CONTENT_TYPES[ext], addRandomSuffix: false });
+      await client.put(`files/${name}`, data, { access: "private", contentType: CONTENT_TYPES[ext], addRandomSuffix: false });
       return name;
     },
     readFile: async (name) => {
       if (!SAFE_NAME.test(name)) return null;
-      const r = await get(`files/${name}`, { access: "private", useCache: false }); // deleted files must not linger in cache
+      // useCache:false so a deleted file is never served from the CDN cache.
+      const r = await client.get(`files/${name}`, { access: "private", useCache: false });
       if (!r || r.statusCode !== 200) return null;
       return Buffer.from(await new Response(r.stream).arrayBuffer());
     },
   };
 }
 
-const backend: Backend = USE_BLOB ? blobBackend() : localBackend();
+/* ------------------------------ selection ------------------------------ */
+function misconfiguredBackend(): Backend {
+  const fail = async (): Promise<never> => {
+    throw new Error("Storage is not configured: connect a private Vercel Blob store to this project (BLOB_READ_WRITE_TOKEN is missing).");
+  };
+  return { listSessions: fail, getSession: fail, createSession: fail, updateSession: fail, deleteSession: fail, saveFile: fail, readFile: fail };
+}
 
-export const listSessions = () => backend.listSessions();
-export const getSession = (id: string) => backend.getSession(id);
-export const createSession = (s: Session) => backend.createSession(s);
-/** Apply a mutation to one session. `fn` may run more than once (on a concurrent-write retry). */
-export const updateSession = (id: string, fn: (s: Session) => void) => backend.updateSession(id, fn);
-export const deleteSession = (id: string) => backend.deleteSession(id);
-export const saveFile = (ext: string, data: Buffer) => backend.saveFile(ext, data);
-export const readFile = (name: string) => backend.readFile(name);
+let backend: Backend | null = null;
+function b(): Backend {
+  if (!backend) {
+    if (process.env.BLOB_READ_WRITE_TOKEN) backend = createBlobBackend();
+    else if (process.env.VERCEL) backend = misconfiguredBackend(); // never use the disk on Vercel
+    else backend = createLocalBackend();
+  }
+  return backend;
+}
+
+export const listSessions = () => b().listSessions();
+export const getSession = (id: string) => b().getSession(id);
+export const createSession = (s: Session) => b().createSession(s);
+/** Apply a mutation to one session. `fn` may run more than once (on an ETag-conflict retry). */
+export const updateSession = (id: string, fn: (s: Session) => void) => b().updateSession(id, fn);
+export const deleteSession = (id: string) => b().deleteSession(id);
+export const saveFile = (ext: string, data: Buffer) => b().saveFile(ext, data);
+export const readFile = (name: string) => b().readFile(name);
