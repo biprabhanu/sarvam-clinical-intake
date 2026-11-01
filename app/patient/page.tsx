@@ -169,8 +169,12 @@ function QuestionStep({ session, index, existing, onSaved, onNext, onBack }: {
       stream.getTracks().forEach((t) => t.stop());
       if (timer.current) clearInterval(timer.current);
       try {
-        const { wav, duration } = await blobToWav16k(new Blob(chunks, { type: mr.mimeType }));
+        const { wav, duration, peak } = await blobToWav16k(new Blob(chunks, { type: mr.mimeType }));
         if (duration < 0.5) { setMode("idle"); return setError("Recording too short — please try again."); }
+        if (peak < 0.003) {
+          setMode("idle");
+          return setError("No sound reached the microphone (the recording is silent). Check that the microphone is allowed for this browser and not muted, then try again — or type your answer.");
+        }
         setWav({ blob: wav, url: URL.createObjectURL(wav), duration });
         setMode("recorded");
       } catch {

@@ -1,5 +1,5 @@
 // Browser-side: convert a MediaRecorder blob (webm/ogg) to 16 kHz mono 16-bit PCM WAV.
-export async function blobToWav16k(blob: Blob): Promise<{ wav: Blob; duration: number }> {
+export async function blobToWav16k(blob: Blob): Promise<{ wav: Blob; duration: number; peak: number }> {
   const buf = await blob.arrayBuffer();
   const ctx = new AudioContext();
   let decoded: AudioBuffer;
@@ -16,7 +16,10 @@ export async function blobToWav16k(blob: Blob): Promise<{ wav: Blob; duration: n
   src.connect(off.destination); // down-mixes to mono
   src.start();
   const rendered = await off.startRendering();
-  return { wav: encodeWav(rendered.getChannelData(0), rate), duration: decoded.duration };
+  const samples = rendered.getChannelData(0);
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]));
+  return { wav: encodeWav(samples, rate), duration: decoded.duration, peak };
 }
 
 export function encodeWav(samples: Float32Array, sampleRate: number): Blob {
