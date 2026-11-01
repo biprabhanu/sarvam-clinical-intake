@@ -11,16 +11,21 @@ export class SarvamError extends Error {
 
 function key(): string {
   const k = process.env.SARVAM_API_KEY;
-  if (!k) throw new SarvamError("SARVAM_API_KEY is not set in .env.local");
+  if (!k) {
+    throw new SarvamError(
+      "SARVAM_API_KEY is not configured (set it in .env.local locally, or in Vercel → Project → Settings → Environment Variables)",
+    );
+  }
   return k;
 }
 
 async function call(path: string, init: RequestInit, timeoutMs: number) {
+  const apiKey = key(); // read before the network try-block so a missing key isn't reported as a network error
   let res: Response;
   try {
     res = await fetch(BASE + path, {
       ...init,
-      headers: { "api-subscription-key": key(), ...(init.headers ?? {}) },
+      headers: { "api-subscription-key": apiKey, ...(init.headers ?? {}) },
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (e) {
