@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Ear, Loader2, Mic, Stethoscope, Sparkles } from "lucide-react";
+import { apiFetch } from "@/lib/api-client";
 
 export default function Home() {
   const router = useRouter();
@@ -12,15 +13,13 @@ export default function Home() {
   async function seed() {
     setLoading(true);
     setError(null);
-    try {
-      const r = await fetch("/api/demo/seed", { method: "POST" });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "Failed");
-      router.push(`/doctor?session=${j.id}`);
-    } catch (e) {
-      setError((e as Error).message);
+    const r = await apiFetch<{ id: string }>("/api/demo/seed", { method: "POST" });
+    if (!r.ok || !r.data) {
+      setError(r.error);
       setLoading(false);
+      return;
     }
+    router.push(`/doctor?session=${r.data.id}`);
   }
 
   return (

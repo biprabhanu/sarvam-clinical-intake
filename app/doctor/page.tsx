@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { QUESTIONS, langName } from "@/lib/i18n";
 import type { Answer, DoctorPrompt, Fact, Segment, Session } from "@/lib/types";
+import { apiFetch } from "@/lib/api-client";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const STATUS_LABEL = { in_progress: "In progress", ready: "Ready for review", signed_off: "Signed off" } as const;
@@ -36,7 +37,7 @@ function usePlayer() {
       let url = urls.current.get(file);
       if (!url) {
         const r = await fetch(`/api/files/${file}`);
-        if (!r.ok) throw new Error("Audio file not found");
+        if (!r.ok) throw new Error(r.status === 401 ? "Please log in again" : "Audio file not found");
         url = URL.createObjectURL(await r.blob());
         urls.current.set(file, url);
       }
@@ -64,19 +65,21 @@ export default function DoctorPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const player = usePlayer();
 
+  const [listError, setListError] = useState<string | null>(null);
   const load = useCallback(async () => {
-    const r = await fetch("/api/sessions", { cache: "no-store" });
-    if (r.ok) setSessions(await r.json());
+    const r = await apiFetch<Session[]>("/api/sessions", { cache: "no-store" });
+    if (r.ok && r.data) setSessions(r.data);
   }, []);
 
   useEffect(() => {
     const q = new URLSearchParams(window.location.search).get("session");
     let alive = true;
     const tick = () =>
-      fetch("/api/sessions", { cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((j: Session[] | null) => { if (alive && j) setSessions(j); })
-        .catch(() => undefined);
+      apiFetch<Session[]>("/api/sessions", { cache: "no-store" }).then((r) => {
+        if (!alive) return;
+        if (r.ok && r.data) { setSessions(r.data); setListError(null); }
+        else setListError(r.error);
+      });
     tick().then(() => { if (alive && q) setSelected(q); });
     const t = setInterval(tick, 4000);
     return () => { alive = false; clearInterval(t); };
@@ -95,6 +98,7 @@ export default function DoctorPage() {
             <form action="/api/logout" method="post"><button className="text-xs text-slate-400 hover:text-slate-600 underline">Log out</button></form>
           </div>
         </div>
+        {listError && <p className="mx-3 mt-3 rounded-lg bg-red-50 text-red-700 text-sm px-3 py-2">{listError}</p>}
         <ul className="flex lg:flex-col overflow-x-auto lg:overflow-y-auto p-2 gap-1">
           {sessions.length === 0 && <li className="p-4 text-slate-400 text-sm">No patients yet.</li>}
           {sessions.map((s) => (
@@ -143,27 +147,34 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
   const factById = useMemo(() => new Map((s.summary?.facts ?? []).map((f) => [f.id, f])), [s.summary]);
   const locked = !!s.signoff;
 
-  async function patch(body: object) {
+  const [inFlight, setInFlight] = useState(false); // disables every review button while a request runs
+
+  async function patch(body: object): Promise<boolean> {
+    if (inFlight) return false;
+    setInFlight(true);
     setError(null);
-    const r = await fetch(`/api/sessions/${s.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    const j = await r.json();
-    if (!r.ok) return setError(j.error);
-    onChange(j);
+    const r = await apiFetch<Session>(`/api/sessions/${s.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    setInFlight(false);
+    if (!r.ok || !r.data) { setError(r.error); return false; }
+    onChange(r.data);
+    return true;
   }
 
   async function regenerate() {
     setBusy(true);
     setError(null);
-    const r = await fetch(`/api/summary/${s.id}`, { method: "POST" });
-    const j = await r.json();
+    const r = await apiFetch(`/api/summary/${s.id}`, { method: "POST" });
     setBusy(false);
-    if (!r.ok) setError(j.error);
-    const g = await fetch(`/api/sessions/${s.id}`);
-    if (g.ok) onChange(await g.json());
+    if (!r.ok) setError(r.error);
+    const g = await apiFetch<Session>(`/api/sessions/${s.id}`);
+    if (g.ok && g.data) onChange(g.data);
   }
 
   async function del() {
-    await fetch(`/api/sessions/${s.id}`, { method: "DELETE" });
+    setInFlight(true);
+    const r = await apiFetch(`/api/sessions/${s.id}`, { method: "DELETE" });
+    setInFlight(false);
+    if (!r.ok) { setConfirmDelete(false); return setError(r.error); }
     onDeleted();
   }
 
@@ -190,7 +201,7 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
             </button>
           )}
           {confirmDelete ? (
-            <button onClick={del} className="rounded-xl bg-red-600 text-white px-4 py-2 text-sm">Confirm delete all data</button>
+            <button onClick={del} disabled={inFlight} className="rounded-xl bg-red-600 text-white px-4 py-2 text-sm disabled:opacity-50">Confirm delete all data</button>
           ) : (
             <button onClick={() => setConfirmDelete(true)} className="rounded-xl border border-slate-300 px-3 py-2 text-slate-500 hover:text-red-600" title="Delete session, audio and images"><Trash2 className="w-4 h-4" /></button>
           )}
@@ -213,7 +224,13 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
         );
       })}
 
-      {error && <p className="rounded-xl bg-red-50 text-red-700 p-3">{error}</p>}
+      {error && (
+        <div role="alert" className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl bg-red-600 text-white shadow-lg px-4 py-3 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+          <p className="flex-1 text-sm">{error}</p>
+          <button onClick={() => setError(null)} aria-label="Dismiss"><X className="w-4 h-4" /></button>
+        </div>
+      )}
       {player.err && <p className="rounded-xl bg-amber-50 text-amber-800 p-3">Playback: {player.err}</p>}
 
       {/* summary states */}
@@ -252,7 +269,7 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
               <p className="text-sm text-slate-500 -mt-2">Every item is linked to the patient&apos;s own words. Press ▶ to hear the source.</p>
               {s.summary.facts.length === 0 && <p className="text-slate-400">No facts with valid evidence were extracted.</p>}
               {s.summary.facts.map((f) => (
-                <FactCard key={f.id} f={f} segIndex={segIndex} player={player} locked={locked} onPatch={patch} />
+                <FactCard key={f.id} f={f} segIndex={segIndex} player={player} locked={locked} busy={inFlight} onPatch={patch} />
               ))}
             </div>
 
@@ -262,7 +279,7 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
               <p className="text-sm text-indigo-700 bg-indigo-50 rounded-lg px-3 py-1.5 -mt-1">AI-generated prompts — for doctor verification only. Not a diagnosis or treatment advice.</p>
               {s.summary.prompts.length === 0 && <p className="text-slate-400">No prompts.</p>}
               {s.summary.prompts.map((p) => (
-                <PromptCard key={p.id} p={p} factById={factById} locked={locked} onPatch={patch} />
+                <PromptCard key={p.id} p={p} factById={factById} locked={locked} busy={inFlight} onPatch={patch} />
               ))}
             </div>
           </div>
@@ -303,7 +320,7 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
             <p className="text-sm text-slate-500">{pending ? `${pending} fact(s) still pending — review each before signing.` : "All facts reviewed. Only the signed version is the clinical summary."}</p>
           </div>
           <input value={doctorId} onChange={(e) => setDoctorId(e.target.value)} placeholder="Doctor ID" className="rounded-xl border border-slate-300 px-4 py-2" />
-          <button onClick={() => patch({ action: "signoff", doctorId })} disabled={!doctorId.trim() || pending > 0} className="rounded-xl bg-brand text-white px-5 py-2 font-medium disabled:opacity-40">
+          <button onClick={() => patch({ action: "signoff", doctorId })} disabled={!doctorId.trim() || pending > 0 || inFlight} className="rounded-xl bg-brand text-white px-5 py-2 font-medium disabled:opacity-40">
             Sign off
           </button>
         </div>
@@ -339,8 +356,8 @@ function SourceRef({ id, segIndex, player }: { id: string; segIndex: Map<string,
   );
 }
 
-function FactCard({ f, segIndex, player, locked, onPatch }: {
-  f: Fact; segIndex: Map<string, { seg: Segment; answer: Answer }>; player: Player; locked: boolean; onPatch: (b: object) => void;
+function FactCard({ f, segIndex, player, locked, busy, onPatch }: {
+  f: Fact; segIndex: Map<string, { seg: Segment; answer: Answer }>; player: Player; locked: boolean; busy: boolean; onPatch: (b: object) => Promise<boolean>;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(f.editedText ?? f.englishText);
@@ -363,7 +380,7 @@ function FactCard({ f, segIndex, player, locked, onPatch }: {
           {editing ? (
             <div className="flex gap-2 mt-1">
               <input value={text} onChange={(e) => setText(e.target.value)} className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5" autoFocus />
-              <button onClick={() => { onPatch({ action: "fact", factId: f.id, status: "edited", editedText: text }); setEditing(false); }} className="rounded-lg bg-brand text-white px-3">Save</button>
+              <button disabled={busy || !text.trim()} onClick={async () => { if (await onPatch({ action: "fact", factId: f.id, status: "edited", editedText: text })) setEditing(false); }} className="rounded-lg bg-brand text-white px-3 disabled:opacity-50">Save</button>
               <button onClick={() => setEditing(false)} className="rounded-lg border px-3">Cancel</button>
             </div>
           ) : f.status === "edited" && f.editedText ? (
@@ -381,9 +398,9 @@ function FactCard({ f, segIndex, player, locked, onPatch }: {
         </div>
         {!locked && (
           <div className="flex flex-col gap-1">
-            <IconBtn title="Confirm" active={f.status === "confirmed"} onClick={() => onPatch({ action: "fact", factId: f.id, status: "confirmed" })} className="text-emerald-700 hover:bg-emerald-50"><Check className="w-4 h-4" /></IconBtn>
-            <IconBtn title="Edit" active={f.status === "edited"} onClick={() => setEditing(true)} className="text-slate-600 hover:bg-slate-100"><Pencil className="w-4 h-4" /></IconBtn>
-            <IconBtn title="Reject" active={f.status === "rejected"} onClick={() => onPatch({ action: "fact", factId: f.id, status: "rejected" })} className="text-slate-500 hover:bg-slate-100"><X className="w-4 h-4" /></IconBtn>
+            <IconBtn disabled={busy} title="Confirm" active={f.status === "confirmed"} onClick={() => onPatch({ action: "fact", factId: f.id, status: "confirmed" })} className="text-emerald-700 hover:bg-emerald-50"><Check className="w-4 h-4" /></IconBtn>
+            <IconBtn disabled={busy} title="Edit" active={f.status === "edited"} onClick={() => setEditing(true)} className="text-slate-600 hover:bg-slate-100"><Pencil className="w-4 h-4" /></IconBtn>
+            <IconBtn disabled={busy} title="Reject" active={f.status === "rejected"} onClick={() => onPatch({ action: "fact", factId: f.id, status: "rejected" })} className="text-slate-500 hover:bg-slate-100"><X className="w-4 h-4" /></IconBtn>
           </div>
         )}
       </div>
@@ -392,10 +409,10 @@ function FactCard({ f, segIndex, player, locked, onPatch }: {
 }
 
 function IconBtn({ children, active, className, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }) {
-  return <button {...p} className={`w-9 h-9 rounded-lg border flex items-center justify-center ${active ? "border-current bg-slate-50" : "border-slate-200"} ${className}`}>{children}</button>;
+  return <button {...p} className={`w-9 h-9 rounded-lg border flex items-center justify-center disabled:opacity-40 disabled:cursor-wait ${active ? "border-current bg-slate-50" : "border-slate-200"} ${className}`}>{children}</button>;
 }
 
-function PromptCard({ p, factById, locked, onPatch }: { p: DoctorPrompt; factById: Map<string, Fact>; locked: boolean; onPatch: (b: object) => void }) {
+function PromptCard({ p, factById, locked, busy, onPatch }: { p: DoctorPrompt; factById: Map<string, Fact>; locked: boolean; busy: boolean; onPatch: (b: object) => Promise<boolean> }) {
   const dim = p.status === "dismissed" ? "opacity-50" : "";
   return (
     <div className={`rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm ${dim}`}>
@@ -409,8 +426,8 @@ function PromptCard({ p, factById, locked, onPatch }: { p: DoctorPrompt; factByI
         {p.status !== "pending" && <span className={`rounded-full px-2 py-0.5 ${p.status === "asked" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-500"}`}>{p.status === "asked" ? "Asked" : "Dismissed"}</span>}
         {!locked && (
           <>
-            <button onClick={() => onPatch({ action: "prompt", promptId: p.id, status: "asked" })} className="ml-auto rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50">Mark asked</button>
-            <button onClick={() => onPatch({ action: "prompt", promptId: p.id, status: "dismissed" })} className="rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50">Dismiss</button>
+            <button disabled={busy} onClick={() => onPatch({ action: "prompt", promptId: p.id, status: "asked" })} className="ml-auto rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50 disabled:opacity-40">Mark asked</button>
+            <button disabled={busy} onClick={() => onPatch({ action: "prompt", promptId: p.id, status: "dismissed" })} className="rounded-lg border border-slate-200 px-3 py-1 hover:bg-slate-50 disabled:opacity-40">Dismiss</button>
           </>
         )}
       </div>

@@ -5,6 +5,7 @@ import { ArrowRight, Check, FileImage, Keyboard, Loader2, Mic, RotateCcw, Square
 import { LANGS, QUESTIONS, UI } from "@/lib/i18n";
 import { blobToWav16k } from "@/lib/wav";
 import { downscaleImage } from "@/lib/image";
+import { apiFetch } from "@/lib/api-client";
 import type { Answer, Lang, Session } from "@/lib/types";
 
 const MAX_SEC = 25;
@@ -24,15 +25,14 @@ export default function PatientPage() {
   async function startSession() {
     setBusy(true);
     setError(null);
-    const r = await fetch("/api/sessions", {
+    const r = await apiFetch<Session>("/api/sessions", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ token, age, language: lang, consent: agreed }),
     });
-    const j = await r.json();
     setBusy(false);
-    if (!r.ok) return setError(j.error);
-    setSession(j);
+    if (!r.ok || !r.data) return setError(r.error);
+    setSession(r.data);
     setStep("interview");
   }
 
@@ -202,18 +202,16 @@ function QuestionStep({ session, index, existing, onSaved, onNext, onBack }: {
     setError(null);
     body.append("sessionId", session.id);
     body.append("index", String(index + 1));
-    try {
-      const r = await fetch("/api/answer", { method: "POST", body });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? "Upload failed");
-      setAnswer(j.answer);
-      onSaved(j.session);
-      setTyping(false);
-      setMode("idle");
-    } catch (e) {
-      setError(`${(e as Error).message}. You can retry, re-record, or type your answer.`);
+    const r = await apiFetch<{ answer: Answer; session: Session }>("/api/answer", { method: "POST", body });
+    if (!r.ok || !r.data) {
+      setError(`${(r.error ?? "Upload failed").replace(/[.\s]+$/, "")}. You can retry, re-record, or type your answer.`);
       setMode(wav ? "recorded" : "idle");
+      return;
     }
+    setAnswer(r.data.answer);
+    onSaved(r.data.session);
+    setTyping(false);
+    setMode("idle");
   }
 
   const sendAudio = () => { if (!wav) return; const f = new FormData(); f.append("file", wav.blob, "answer.wav"); submit(f); };
@@ -318,11 +316,10 @@ function DocumentStep({ session, onSaved, onFinish }: { session: Session; onSave
     const fd = new FormData();
     fd.append("sessionId", session.id);
     fd.append("file", photo, "prescription.jpg");
-    const r = await fetch("/api/document", { method: "POST", body: fd });
-    const j = await r.json();
+    const r = await apiFetch<Session>("/api/document", { method: "POST", body: fd });
     setBusy(false);
-    if (!r.ok) return setError(j.error);
-    onSaved(j);
+    if (!r.ok || !r.data) return setError(r.error);
+    onSaved(r.data);
   }
 
   return (
