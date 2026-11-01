@@ -73,6 +73,7 @@ export interface Session {
   demo: boolean;
   createdAt: string;
   answers: Answer[];
+  skipped?: number[]; // question indexes the patient explicitly chose to skip
   documents: DocumentFile[];
   summary: Summary | null;
   summaryError: string | null;

@@ -22,6 +22,15 @@ async function handlePOST(req: Request) {
   if (s.status !== "in_progress") return NextResponse.json({ error: "Interview already finished" }, { status: 400 });
   if (!Number.isInteger(index) || index < 1 || index > QUESTIONS.length) return NextResponse.json({ error: "Invalid question" }, { status: 400 });
 
+  if (form.get("skip") === "1") {
+    // Patient explicitly skipped this question: record it so the doctor sees it was not answered.
+    const updated = await updateSession(sessionId, (x) => {
+      x.answers = x.answers.filter((a) => a.index !== index);
+      x.skipped = [...new Set([...(x.skipped ?? []), index])].sort((a, b) => a - b);
+    });
+    return NextResponse.json({ answer: null, session: updated });
+  }
+
   let answer: Answer;
   const now = new Date().toISOString();
 
@@ -72,6 +81,7 @@ async function handlePOST(req: Request) {
 
   const updated = await updateSession(sessionId, (x) => {
     x.answers = x.answers.filter((a) => a.index !== index).concat(answer);
+    x.skipped = (x.skipped ?? []).filter((i) => i !== index);
   });
   return NextResponse.json({ answer, session: updated });
 }

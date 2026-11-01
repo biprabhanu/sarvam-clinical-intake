@@ -12,6 +12,7 @@ import { apiFetch } from "@/lib/api-client";
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const STATUS_LABEL = { in_progress: "In progress", generating: "Generating summary", ready: "Ready for review", signed_off: "Signed off" } as const;
 const STUCK_AFTER_MS = 3 * 60 * 1000;
+const missingAnswers = (s: Session) => QUESTIONS.map((_, i) => i + 1).filter((n) => !s.answers.some((a) => a.index === n));
 
 /* ---------- evidence player: one shared <audio>, blob URLs so seeking always works ---------- */
 function usePlayer() {
@@ -113,6 +114,7 @@ export default function DoctorPage() {
                 <div className="text-sm text-slate-500">{langName(s.language)}{s.age != null && ` · ${s.age} y`}</div>
                 <div className="mt-1 flex gap-1 flex-wrap">
                   <StatusPill status={s.status} />
+                  {s.status !== "in_progress" && missingAnswers(s).length > 0 && <span className="text-xs rounded-full bg-amber-100 text-amber-800 px-2 py-0.5">{QUESTIONS.length - missingAnswers(s).length}/{QUESTIONS.length} answers</span>}
                   {s.demo && <span className="text-xs rounded-full bg-violet-100 text-violet-700 px-2 py-0.5">Demo data</span>}
                 </div>
               </button>
@@ -224,6 +226,16 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
           </div>
         );
       })}
+
+      {s.status !== "in_progress" && missingAnswers(s).length > 0 && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <span>
+            Answers recorded: {QUESTIONS.length - missingAnswers(s).length} of {QUESTIONS.length} — missing:{" "}
+            {missingAnswers(s).map((n) => `Q${n}${(s.skipped ?? []).includes(n) ? " (skipped by patient)" : ""}`).join(", ")}
+          </span>
+        </div>
+      )}
 
       {error && (
         <div role="alert" className="fixed bottom-6 right-6 z-50 max-w-sm rounded-xl bg-red-600 text-white shadow-lg px-4 py-3 flex items-start gap-3">

@@ -112,7 +112,7 @@ export default function PatientPage() {
             />
           )}
 
-          {step === "document" && session && <DocumentStep session={session} onSaved={setSession} onFinish={finish} finishing={busy} finishError={error} />}
+          {step === "document" && session && <DocumentStep session={session} onSaved={setSession} onFinish={finish} onGoTo={(n) => { setQ(n); setStep("interview"); }} finishing={busy} finishError={error} />}
 
           {step === "done" && session && (
             <div className="text-center space-y-4 py-6">
@@ -218,6 +218,20 @@ function QuestionStep({ session, index, existing, onSaved, onNext, onBack }: {
     setMode("idle");
   }
 
+  async function skip() {
+    setMode("uploading");
+    setError(null);
+    const f = new FormData();
+    f.append("sessionId", session.id);
+    f.append("index", String(index + 1));
+    f.append("skip", "1");
+    const r = await apiFetch<{ session: Session }>("/api/answer", { method: "POST", body: f });
+    setMode("idle");
+    if (!r.ok || !r.data) return setError(r.error);
+    onSaved(r.data.session);
+    onNext();
+  }
+
   const sendAudio = () => { if (!wav) return; const f = new FormData(); f.append("file", wav.blob, "answer.wav"); submit(f); };
   const sendText = () => { const f = new FormData(); f.append("text", typed); submit(f); };
 
@@ -296,15 +310,16 @@ function QuestionStep({ session, index, existing, onSaved, onNext, onBack }: {
         {answer ? (
           <BigButton onClick={onNext} className="!w-auto px-8">Next <ArrowRight /></BigButton>
         ) : (
-          <button onClick={onNext} disabled={mode === "recording" || mode === "uploading"} className="text-slate-400 underline">Skip</button>
+          <button onClick={skip} disabled={mode === "recording" || mode === "uploading"} className="text-slate-500 underline disabled:opacity-40">Skip this question</button>
         )}
       </div>
     </div>
   );
 }
 
-function DocumentStep({ session, onSaved, onFinish, finishing, finishError }: { session: Session; onSaved: (s: Session) => void; onFinish: () => void; finishing: boolean; finishError: string | null }) {
+function DocumentStep({ session, onSaved, onFinish, onGoTo, finishing, finishError }: { session: Session; onSaved: (s: Session) => void; onFinish: () => void; onGoTo: (q: number) => void; finishing: boolean; finishError: string | null }) {
   const [busy, setBusy] = useState(false);
+  const missing = QUESTIONS.map((_, i) => i + 1).filter((n) => !session.answers.some((a) => a.index === n) && !(session.skipped ?? []).includes(n));
   const [error, setError] = useState<string | null>(null);
 
   async function upload(f: File) {
@@ -337,8 +352,14 @@ function DocumentStep({ session, onSaved, onFinish, finishing, finishError }: { 
         <input type="file" accept="image/jpeg,image/png" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
       </label>
       {session.documents.length > 0 && <p className="text-emerald-700 flex items-center gap-2"><Check className="w-5 h-5" /> {session.documents.length} image(s) uploaded</p>}
+      {missing.length > 0 && (
+        <p className="rounded-xl bg-amber-50 text-amber-800 p-3">
+          Please answer or skip question{missing.length > 1 ? "s" : ""} {missing.join(", ")} before finishing.
+          <button onClick={() => onGoTo(missing[0] - 1)} className="ml-2 underline font-medium">Go to question {missing[0]}</button>
+        </p>
+      )}
       {(error || finishError) && <p className="text-red-600">{error ?? finishError}</p>}
-      <BigButton onClick={onFinish} disabled={busy || finishing}>{finishing ? <Loader2 className="animate-spin" /> : <Check />} Finish</BigButton>
+      <BigButton onClick={onFinish} disabled={busy || finishing || missing.length > 0}>{finishing ? <Loader2 className="animate-spin" /> : <Check />} Finish</BigButton>
     </div>
   );
 }
