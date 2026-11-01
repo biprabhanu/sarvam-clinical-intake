@@ -31,3 +31,15 @@ export const DEMO_PROMPTS: DoctorPrompt[] = [
   { id: "p3", text: "Verify the Metformin dose and when blood sugar was last checked.", supportingFactIds: ["f7", "f8"], status: "pending" },
   { id: "p4", text: "Ask about recent travel or mosquito exposure.", supportingFactIds: ["f1"], status: "pending" },
 ];
+
+/** Reset an existing demo session for a fresh walkthrough without regenerating (paid) audio. */
+export function resetDemoSession(s: import("./types").Session): void {
+  s.status = "ready";
+  s.signoff = null;
+  s.summaryError = null;
+  if (s.summary) {
+    s.summary.facts = structuredClone(DEMO_FACTS);
+    s.summary.prompts = structuredClone(DEMO_PROMPTS);
+    s.summary.redFlags = [];
+  }
+}

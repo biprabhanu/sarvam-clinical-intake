@@ -50,7 +50,7 @@ export default function Home() {
 
         <button onClick={seed} disabled={loading} className="mt-6 inline-flex items-center gap-2 text-brand font-medium hover:underline disabled:opacity-60">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          {loading ? "Generating demo session (Odia audio)…" : "Load demo session"}
+          {loading ? "Preparing demo session…" : "Load / reset demo session"}
         </button>
         {error && <p className="mt-2 text-red-600 text-sm">{error}</p>}
 

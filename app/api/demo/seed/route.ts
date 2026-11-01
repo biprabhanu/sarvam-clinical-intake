@@ -1,14 +1,21 @@
 import { route } from "@/lib/route";
 import { NextResponse } from "next/server";
-import { createSession, newId, saveFile } from "@/lib/store";
+import { createSession, listSessions, newId, saveFile, updateSession } from "@/lib/store";
 import { tts } from "@/lib/sarvam";
 import { concatWavs } from "@/lib/wavnode";
-import { DEMO_ANSWERS, DEMO_FACTS, DEMO_PROMPTS } from "@/lib/demo";
+import { DEMO_ANSWERS, DEMO_FACTS, DEMO_PROMPTS, resetDemoSession } from "@/lib/demo";
 import type { Answer, Session } from "@/lib/types";
 
 export const maxDuration = 120;
 
 async function handlePOST() {
+  // Reuse the existing demo session (reset its review state) so we don't pay for Bulbul audio again.
+  const existing = (await listSessions()).filter((s) => s.demo).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  if (existing.length) {
+    const reset = await updateSession(existing[0].id, resetDemoSession);
+    if (reset) return NextResponse.json({ id: reset.id, reused: true, audioError: null });
+  }
+
   const now = new Date().toISOString();
   let audioError: string | null = null;
   const answers: Answer[] = [];
@@ -68,7 +75,7 @@ async function handlePOST() {
     signoff: null,
   };
   await createSession(s);
-  return NextResponse.json({ id: s.id, audioError });
+  return NextResponse.json({ id: s.id, reused: false, audioError });
 }
 
 export const POST = route("demo/seed POST", handlePOST);
