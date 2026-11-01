@@ -10,7 +10,8 @@ import type { Answer, DoctorPrompt, Fact, Segment, Session } from "@/lib/types";
 import { apiFetch } from "@/lib/api-client";
 
 const fmt = (t: number) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
-const STATUS_LABEL = { in_progress: "In progress", ready: "Ready for review", signed_off: "Signed off" } as const;
+const STATUS_LABEL = { in_progress: "In progress", generating: "Generating summary", ready: "Ready for review", signed_off: "Signed off" } as const;
+const STUCK_AFTER_MS = 3 * 60 * 1000;
 
 /* ---------- evidence player: one shared <audio>, blob URLs so seeking always works ---------- */
 function usePlayer() {
@@ -129,7 +130,7 @@ export default function DoctorPage() {
 }
 
 function StatusPill({ status }: { status: Session["status"] }) {
-  const c = status === "signed_off" ? "bg-emerald-100 text-emerald-800" : status === "ready" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600";
+  const c = status === "signed_off" ? "bg-emerald-100 text-emerald-800" : status === "ready" ? "bg-amber-100 text-amber-800" : status === "generating" ? "bg-sky-100 text-sky-800" : "bg-slate-100 text-slate-600";
   return <span className={`text-xs rounded-full px-2 py-0.5 ${c}`}>{STATUS_LABEL[status]}</span>;
 }
 
@@ -245,9 +246,7 @@ function SessionView({ s, onChange, onDeleted, player }: { s: Session; onChange:
             </div>
           ) : s.status === "in_progress" ? (
             <p>Interview in progress — {s.answers.length} of {QUESTIONS.length} answers received.</p>
-          ) : (
-            <p className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Generating summary…</p>
-          )}
+          ) : <GeneratingNotice since={s.generatingSince ?? null} busy={busy} onRetry={regenerate} />}
         </div>
       )}
 
@@ -457,6 +456,24 @@ function TranscriptBlock({ a, player }: { a: Answer; player: Player }) {
           {a.englishTranslation && <p className="text-sm text-slate-500 px-3"><span className="font-medium">Machine translation:</span> {a.englishTranslation}</p>}
         </div>
       )}
+    </div>
+  );
+}
+
+function GeneratingNotice({ since, busy, onRetry }: { since: string | null; busy: boolean; onRetry: () => void }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(t);
+  }, []);
+  const stuck = !since || now - new Date(since).getTime() > STUCK_AFTER_MS;
+  if (!stuck) return <p className="flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Generating summary…</p>;
+  return (
+    <div className="space-y-3">
+      <p className="text-amber-700">Summary seems stuck — it has not finished after 3 minutes.</p>
+      <button onClick={onRetry} disabled={busy} className="rounded-xl bg-brand text-white px-5 py-2 inline-flex items-center gap-2 disabled:opacity-50">
+        <RefreshCw className={`w-4 h-4 ${busy ? "animate-spin" : ""}`} /> Retry
+      </button>
     </div>
   );
 }

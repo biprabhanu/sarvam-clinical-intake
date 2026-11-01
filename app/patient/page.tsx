@@ -38,9 +38,13 @@ export default function PatientPage() {
 
   async function finish() {
     if (!session) return;
+    setBusy(true);
+    setError(null);
+    // The server marks the session "generating" and builds the summary after responding.
+    const r = await apiFetch<Session>(`/api/sessions/${session.id}/finish`, { method: "POST" });
+    setBusy(false);
+    if (!r.ok) return setError(r.error);
     setStep("done");
-    // Summary generation runs server-side; the doctor dashboard shows its progress/result.
-    fetch(`/api/summary/${session.id}`, { method: "POST" }).catch(() => undefined);
   }
 
   return (
@@ -108,7 +112,7 @@ export default function PatientPage() {
             />
           )}
 
-          {step === "document" && session && <DocumentStep session={session} onSaved={setSession} onFinish={finish} />}
+          {step === "document" && session && <DocumentStep session={session} onSaved={setSession} onFinish={finish} finishing={busy} finishError={error} />}
 
           {step === "done" && session && (
             <div className="text-center space-y-4 py-6">
@@ -299,7 +303,7 @@ function QuestionStep({ session, index, existing, onSaved, onNext, onBack }: {
   );
 }
 
-function DocumentStep({ session, onSaved, onFinish }: { session: Session; onSaved: (s: Session) => void; onFinish: () => void }) {
+function DocumentStep({ session, onSaved, onFinish, finishing, finishError }: { session: Session; onSaved: (s: Session) => void; onFinish: () => void; finishing: boolean; finishError: string | null }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -333,8 +337,8 @@ function DocumentStep({ session, onSaved, onFinish }: { session: Session; onSave
         <input type="file" accept="image/jpeg,image/png" capture="environment" className="hidden" onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
       </label>
       {session.documents.length > 0 && <p className="text-emerald-700 flex items-center gap-2"><Check className="w-5 h-5" /> {session.documents.length} image(s) uploaded</p>}
-      {error && <p className="text-red-600">{error}</p>}
-      <BigButton onClick={onFinish} disabled={busy}>Finish <Check /></BigButton>
+      {(error || finishError) && <p className="text-red-600">{error ?? finishError}</p>}
+      <BigButton onClick={onFinish} disabled={busy || finishing}>{finishing ? <Loader2 className="animate-spin" /> : <Check />} Finish</BigButton>
     </div>
   );
 }

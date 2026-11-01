@@ -1,5 +1,5 @@
 export type Lang = "od-IN" | "hi-IN" | "mr-IN";
-export type SessionStatus = "in_progress" | "ready" | "signed_off";
+export type SessionStatus = "in_progress" | "generating" | "ready" | "signed_off";
 export type FactCategory = "symptom" | "duration" | "medicine" | "history" | "allergy" | "other";
 export type FactStatus = "pending" | "confirmed" | "edited" | "rejected";
 export type PromptStatus = "pending" | "asked" | "dismissed";
@@ -76,5 +76,6 @@ export interface Session {
   documents: DocumentFile[];
   summary: Summary | null;
   summaryError: string | null;
+  generatingSince?: string | null; // set while the summary is being generated
   signoff: { doctorId: string; at: string } | null;
 }
